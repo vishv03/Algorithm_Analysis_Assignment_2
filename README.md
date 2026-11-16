@@ -17,3 +17,30 @@ python -m venv .venv
 ```bash
 .venv/Scripts/python -m pytest -q
 ```
+
+## Usage
+
+```bash
+.venv/Scripts/python cli.py INPUT OUTPUT [--width W] [--height H]
+```
+
+Examples, using the included synthetic sample (480 x 300):
+
+```bash
+.venv/Scripts/python cli.py samples/scene.png out/scene_w300.png --width 300
+.venv/Scripts/python cli.py samples/scene.png out/scene_300x220.png --width 300 --height 220
+```
+
+An omitted dimension stays unchanged. The image can only be shrunk.
+Pillow is used only to read and write files; the energy map, the DP seam
+search and the seam removal are all implemented in `seamcarve/`.
+
+## How it works
+
+| Step | Module | What it does |
+|------|--------|--------------|
+| 1a Energy map | `seamcarve/energy.py` | Dual-gradient energy: Δx² + Δy² summed over R, G, B, with edge-replicated borders |
+| 1b Minimum seam | `seamcarve/dp.py` | DP: `M[i][j] = e[i][j] + min(M[i-1][j-1], M[i-1][j], M[i-1][j+1])`, then backtrack. Horizontal seams reuse the same code on the transposed energy map |
+| 1c Remove and repeat | `seamcarve/carve.py` | Delete the seam with a boolean mask, recompute the energy, repeat. Vertical and horizontal seams alternate while both dimensions shrink |
+
+Per seam: O(m·n) time and space. Removing k seams: O(k·m·n) time.
