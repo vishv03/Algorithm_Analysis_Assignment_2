@@ -35,6 +35,8 @@ Examples, using the included synthetic sample (480 x 300):
 ```
 
 An omitted dimension stays unchanged. The image can only be shrunk.
+Add `--energy sobel` to use the Sobel filter instead of the default dual-gradient
+energy (both `cli.py` and `compare.py` accept it).
 Pillow is used only to read and write files; the energy map, the DP seam
 search and the seam removal are all implemented in `seamcarve/`.
 
@@ -52,7 +54,7 @@ only as baselines; the seam-carved panel uses `seamcarve.resize()`.
 
 | Step | Module | What it does |
 |------|--------|--------------|
-| 1a Energy map | `seamcarve/energy.py` | Dual-gradient energy: Δx² + Δy² summed over R, G, B, with edge-replicated borders |
+| 1a Energy map | `seamcarve/energy.py` | Dual-gradient energy (Δx² + Δy²) or Sobel energy (Gx² + Gy², 3x3 kernels), summed over R, G, B, with edge-replicated borders |
 | 1b Minimum seam | `seamcarve/dp.py` | DP: `M[i][j] = e[i][j] + min(M[i-1][j-1], M[i-1][j], M[i-1][j+1])`, then backtrack. Horizontal seams reuse the same code on the transposed energy map |
 | 1c Remove and repeat | `seamcarve/carve.py` | Delete the seam with a boolean mask, recompute the energy, repeat. Vertical and horizontal seams alternate while both dimensions shrink |
 

@@ -25,6 +25,7 @@ import numpy as np
 from PIL import Image, ImageDraw
 
 from seamcarve.carve import resize
+from seamcarve.energy import ENERGY_FUNCTIONS, dual_gradient_energy
 
 GAP = 10            # white space between panels, in pixels
 LABEL_HEIGHT = 24   # space above each panel for its caption
@@ -36,17 +37,20 @@ def center_crop(img: Image.Image, width: int, height: int) -> Image.Image:
     return img.crop((left, top, left + width, top + height))
 
 
-def build_comparison(original: Image.Image, width: int, height: int) -> tuple[Image.Image, float]:
+def build_comparison(
+    original: Image.Image, width: int, height: int, energy_fn=dual_gradient_energy
+) -> tuple[Image.Image, float]:
     """Return the 4-panel comparison image and the seam carving time in seconds."""
     start = time.perf_counter()
-    carved = Image.fromarray(resize(np.asarray(original), height, width))
+    carved = Image.fromarray(resize(np.asarray(original), height, width, energy_fn=energy_fn))
     elapsed = time.perf_counter() - start
 
+    name = energy_fn.__name__.replace("_energy", "").replace("_", "-")
     panels = [
         ("Original", original),
         ("Scaling", original.resize((width, height), Image.Resampling.LANCZOS)),
         ("Cropping", center_crop(original, width, height)),
-        (f"Seam carving ({elapsed:.1f} s)", carved),
+        (f"Seam carving, {name} ({elapsed:.1f} s)", carved),
     ]
 
     total_width = sum(p.width for _, p in panels) + GAP * (len(panels) - 1)
@@ -66,6 +70,8 @@ def main(argv=None) -> int:
     parser.add_argument("output", type=Path)
     parser.add_argument("--width", type=int, help="target width (default: unchanged)")
     parser.add_argument("--height", type=int, help="target height (default: unchanged)")
+    parser.add_argument("--energy", choices=sorted(ENERGY_FUNCTIONS), default="dual-gradient",
+                        help="energy function (default: dual-gradient)")
     args = parser.parse_args(argv)
 
     original = Image.open(args.input).convert("RGB")
@@ -73,7 +79,7 @@ def main(argv=None) -> int:
     height = args.height if args.height is not None else original.height
 
     try:
-        canvas, elapsed = build_comparison(original, width, height)
+        canvas, elapsed = build_comparison(original, width, height, ENERGY_FUNCTIONS[args.energy])
     except ValueError as err:
         print(f"Error: {err}", file=sys.stderr)
         return 1

@@ -40,3 +40,10 @@ def test_cli_rejects_enlarging(tmp_path, capsys):
     assert main([str(src), str(dst), "--width", "20"]) == 1
     assert "Error" in capsys.readouterr().err
     assert not dst.exists()
+
+
+def test_cli_sobel_energy(tmp_path):
+    src, dst = tmp_path / "in.png", tmp_path / "out.png"
+    write_image(src)
+    assert main([str(src), str(dst), "--width", "12", "--energy", "sobel"]) == 0
+    assert Image.open(dst).size == (12, 12)

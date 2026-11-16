@@ -4,7 +4,11 @@ The energy of a pixel measures how "important" it is, i.e. how much the image
 would be disrupted if that pixel were removed. Pixels in flat regions (sky,
 grass) have low energy; pixels on edges and in detailed regions have high energy.
 
-We use the dual-gradient energy function:
+Two energy functions are provided (alternative designs, same interface):
+    dual_gradient_energy  - central differences, 2 neighbours per direction (default)
+    sobel_energy          - Sobel filter, a 3x3 weighted neighbourhood
+
+1) Dual-gradient energy:
 
     Δx(i, j) = I(i, j+1) - I(i, j-1)          (horizontal central difference)
     Δy(i, j) = I(i+1, j) - I(i-1, j)          (vertical central difference)
@@ -57,3 +61,49 @@ def dual_gradient_energy(img: np.ndarray) -> np.ndarray:
 
     # Square, add, and sum over the colour channels -> shape (m, n).
     return np.sum(dx * dx + dy * dy, axis=2)
+
+
+def sobel_energy(img: np.ndarray) -> np.ndarray:
+    """Compute the Sobel energy map of an image.
+
+    The Sobel filter estimates the gradient with two 3x3 kernels, which also
+    look at the diagonal neighbours and give the centre row/column weight 2:
+
+              [-1  0  +1]              [-1  -2  -1]
+        Gx =  [-2  0  +2]        Gy =  [ 0   0   0]
+              [-1  0  +1]              [+1  +2  +1]
+
+        e(i, j) = Σ over channels of  Gx(i, j)² + Gy(i, j)²
+
+    Compared with dual-gradient, the extra smoothing makes Sobel less
+    sensitive to single-pixel noise, at about 3x the arithmetic per pixel.
+    Borders use the same edge replication. Time and space are still O(m·n).
+
+    Args / Returns: same as dual_gradient_energy.
+    """
+    if img.ndim == 2:
+        img = img[:, :, np.newaxis]
+    if img.ndim != 3:
+        raise ValueError(f"expected an (m, n) or (m, n, c) image, got shape {img.shape}")
+
+    p = np.pad(img.astype(np.float64), ((1, 1), (1, 1), (0, 0)), mode="edge")
+
+    # Each slice is one position of the 3x3 window, for all pixels at once.
+    # p[a:b, c:d] with rows offset r in {0,1,2} and columns offset c in {0,1,2}:
+    top_left, top, top_right = p[:-2, :-2], p[:-2, 1:-1], p[:-2, 2:]
+    left, right = p[1:-1, :-2], p[1:-1, 2:]
+    bottom_left, bottom, bottom_right = p[2:, :-2], p[2:, 1:-1], p[2:, 2:]
+
+    # Gx: right column minus left column, centre row weighted 2.
+    gx = (top_right + 2 * right + bottom_right) - (top_left + 2 * left + bottom_left)
+    # Gy: bottom row minus top row, centre column weighted 2.
+    gy = (bottom_left + 2 * bottom + bottom_right) - (top_left + 2 * top + top_right)
+
+    return np.sum(gx * gx + gy * gy, axis=2)
+
+
+# Name -> function, used by the command-line tools (--energy).
+ENERGY_FUNCTIONS = {
+    "dual-gradient": dual_gradient_energy,
+    "sobel": sobel_energy,
+}

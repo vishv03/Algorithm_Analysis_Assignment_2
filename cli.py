@@ -21,6 +21,7 @@ import numpy as np
 from PIL import Image
 
 from seamcarve.carve import resize
+from seamcarve.energy import ENERGY_FUNCTIONS
 
 
 def parse_args(argv=None) -> argparse.Namespace:
@@ -31,6 +32,8 @@ def parse_args(argv=None) -> argparse.Namespace:
     parser.add_argument("output", type=Path, help="where to write the resized image")
     parser.add_argument("--width", type=int, help="target width in pixels (default: unchanged)")
     parser.add_argument("--height", type=int, help="target height in pixels (default: unchanged)")
+    parser.add_argument("--energy", choices=sorted(ENERGY_FUNCTIONS), default="dual-gradient",
+                        help="energy function (default: dual-gradient)")
     return parser.parse_args(argv)
 
 
@@ -46,11 +49,12 @@ def main(argv=None) -> int:
 
     print(f"Input:  {args.input}  {width} x {height}")
     print(f"Target: {new_width} x {new_height}  "
-          f"({width - new_width} vertical + {height - new_height} horizontal seams)")
+          f"({width - new_width} vertical + {height - new_height} horizontal seams), "
+          f"energy: {args.energy}")
 
     start = time.perf_counter()
     try:
-        out = resize(img, new_height, new_width)
+        out = resize(img, new_height, new_width, energy_fn=ENERGY_FUNCTIONS[args.energy])
     except ValueError as err:
         print(f"Error: {err}", file=sys.stderr)
         return 1
