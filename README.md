@@ -6,34 +6,47 @@ until the image reaches the requested size.
 
 ## Setup
 
-```bash
+On Windows, use backslashes in the path (`.venv\Scripts\python`); cmd does not
+understand `.venv/Scripts/python`. On macOS / Linux use `.venv/bin/python`.
+
+```
 python -m venv .venv
-.venv/Scripts/python -m pip install -r requirements.txt   # Windows
+.venv\Scripts\python -m pip install -r requirements.txt   # Windows (cmd or PowerShell)
 # .venv/bin/python -m pip install -r requirements.txt     # macOS / Linux
 ```
 
 ## Tests
 
-```bash
-.venv/Scripts/python -m pytest -q
+```
+.venv\Scripts\python -m pytest -q
 ```
 
 ## Usage
 
-```bash
-.venv/Scripts/python cli.py INPUT OUTPUT [--width W] [--height H]
+```
+.venv\Scripts\python cli.py INPUT OUTPUT [--width W] [--height H]
 ```
 
 Examples, using the included synthetic sample (480 x 300):
 
-```bash
-.venv/Scripts/python cli.py samples/scene.png out/scene_w300.png --width 300
-.venv/Scripts/python cli.py samples/scene.png out/scene_300x220.png --width 300 --height 220
+```
+.venv\Scripts\python cli.py samples/scene.png out/scene_w300.png --width 300
+.venv\Scripts\python cli.py samples/scene.png out/scene_300x220.png --width 300 --height 220
 ```
 
 An omitted dimension stays unchanged. The image can only be shrunk.
 Pillow is used only to read and write files; the energy map, the DP seam
 search and the seam removal are all implemented in `seamcarve/`.
+
+## Comparison with scaling and cropping
+
+```
+.venv\Scripts\python compare.py samples/broadway_tower.jpg out/broadway_compare.jpg --width 640
+```
+
+Writes one image with four labelled panels: original, plain scaling, centred
+crop, and seam carving (with its running time). Scaling and cropping use Pillow
+only as baselines; the seam-carved panel uses `seamcarve.resize()`.
 
 ## How it works
 
@@ -53,6 +66,6 @@ Per seam: O(m·n) time and space. Removing k seams: O(k·m·n) time.
   from [Wikimedia Commons](https://commons.wikimedia.org/wiki/File:Broadway_tower_edit.jpg),
   licensed [CC BY 2.5](https://creativecommons.org/licenses/by/2.5/). Downscaled to 960 x 651.
 
-```bash
-.venv/Scripts/python cli.py samples/broadway_tower.jpg out/broadway_w640.jpg --width 640
+```
+.venv\Scripts\python cli.py samples/broadway_tower.jpg out/broadway_w640.jpg --width 640
 ```
