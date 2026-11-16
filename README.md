@@ -44,3 +44,15 @@ search and the seam removal are all implemented in `seamcarve/`.
 | 1c Remove and repeat | `seamcarve/carve.py` | Delete the seam with a boolean mask, recompute the energy, repeat. Vertical and horizontal seams alternate while both dimensions shrink |
 
 Per seam: O(m·n) time and space. Removing k seams: O(k·m·n) time.
+
+## Sample images
+
+- `samples/scene.png`: synthetic test scene generated for this project.
+- `samples/broadway_tower.jpg`: Broadway Tower, Worcestershire. Photo by
+  [Newton2](https://en.wikipedia.org/wiki/User:Newton2), cropped by Yummifruitbat,
+  from [Wikimedia Commons](https://commons.wikimedia.org/wiki/File:Broadway_tower_edit.jpg),
+  licensed [CC BY 2.5](https://creativecommons.org/licenses/by/2.5/). Downscaled to 960 x 651.
+
+```bash
+.venv/Scripts/python cli.py samples/broadway_tower.jpg out/broadway_w640.jpg --width 640
+```
