@@ -60,6 +60,20 @@ only as baselines; the seam-carved panel uses `seamcarve.resize()`.
 
 Per seam: O(m·n) time and space. Removing k seams: O(k·m·n) time.
 
+## Improvements (`--fast`)
+
+`cli.py ... --fast` turns on two optimisations. Both give **exactly** the same
+output as the default (checked by `tests/test_improvements.py`):
+
+- **Local energy update** (`resize(..., incremental=True)`): after removing a seam,
+  only the pixels next to it can change energy. The seam is removed from the energy
+  map too, and only a few pixels per row are recomputed: O(m) instead of O(m·n) for
+  the energy step.
+- **Low-memory DP** (`find_vertical_seam_low_memory`): row i of the DP table only needs
+  row i-1, so the float64 table M is not stored. Only the int8 back-pointers are kept:
+  about 1 byte per pixel instead of 9, with the same seam. The minimum cost alone needs
+  just O(n) memory (`min_vertical_seam_cost`).
+
 ## Sample images
 
 - `samples/scene.png`: synthetic test scene generated for this project.

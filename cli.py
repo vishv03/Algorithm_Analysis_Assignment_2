@@ -21,6 +21,7 @@ import numpy as np
 from PIL import Image
 
 from seamcarve.carve import resize
+from seamcarve.dp import find_vertical_seam, find_vertical_seam_low_memory
 from seamcarve.energy import ENERGY_FUNCTIONS
 
 
@@ -34,6 +35,9 @@ def parse_args(argv=None) -> argparse.Namespace:
     parser.add_argument("--height", type=int, help="target height in pixels (default: unchanged)")
     parser.add_argument("--energy", choices=sorted(ENERGY_FUNCTIONS), default="dual-gradient",
                         help="energy function (default: dual-gradient)")
+    parser.add_argument("--fast", action="store_true",
+                        help="use the improvements: local energy update + low-memory DP "
+                             "(same result, faster)")
     return parser.parse_args(argv)
 
 
@@ -54,7 +58,12 @@ def main(argv=None) -> int:
 
     start = time.perf_counter()
     try:
-        out = resize(img, new_height, new_width, energy_fn=ENERGY_FUNCTIONS[args.energy])
+        out = resize(
+            img, new_height, new_width,
+            energy_fn=ENERGY_FUNCTIONS[args.energy],
+            finder=find_vertical_seam_low_memory if args.fast else find_vertical_seam,
+            incremental=args.fast,
+        )
     except ValueError as err:
         print(f"Error: {err}", file=sys.stderr)
         return 1

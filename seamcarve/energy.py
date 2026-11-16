@@ -107,3 +107,57 @@ ENERGY_FUNCTIONS = {
     "dual-gradient": dual_gradient_energy,
     "sobel": sobel_energy,
 }
+
+
+# ---------------------------------------------------------------------------
+# Improvement: local energy update.
+#
+# After a vertical seam is removed, a pixel's energy can only change if one of
+# the neighbours its formula reads has changed. Those pixels lie in a small
+# window around the seam in each row, so instead of recomputing all m·n
+# energies we recompute only about m·w of them (w = window width) - O(m)
+# instead of O(m·n) for this part. The functions below compute the energy of
+# selected pixels only; resize() decides which pixels to pass in.
+#
+# Borders: clamping an index to [0, size-1] is the same as edge replication.
+# ---------------------------------------------------------------------------
+
+def _pixels(img: np.ndarray, rows: np.ndarray, cols: np.ndarray, di: int, dj: int) -> np.ndarray:
+    """Values of the pixels at (rows+di, cols+dj), clamped to the image, as float64."""
+    m, n = img.shape[:2]
+    r = np.clip(rows + di, 0, m - 1)
+    c = np.clip(cols + dj, 0, n - 1)
+    values = img[r, c].astype(np.float64)
+    return values if values.ndim == 2 else values[:, np.newaxis]   # (k, channels)
+
+
+def dual_gradient_energy_at(img: np.ndarray, rows: np.ndarray, cols: np.ndarray) -> np.ndarray:
+    """Dual-gradient energy of the pixels (rows[k], cols[k]) only. Returns length k."""
+    dx = _pixels(img, rows, cols, 0, +1) - _pixels(img, rows, cols, 0, -1)
+    dy = _pixels(img, rows, cols, +1, 0) - _pixels(img, rows, cols, -1, 0)
+    return np.sum(dx * dx + dy * dy, axis=1)
+
+
+def sobel_energy_at(img: np.ndarray, rows: np.ndarray, cols: np.ndarray) -> np.ndarray:
+    """Sobel energy of the pixels (rows[k], cols[k]) only. Returns length k."""
+    def p(di, dj):
+        return _pixels(img, rows, cols, di, dj)
+
+    gx = (p(-1, 1) + 2 * p(0, 1) + p(1, 1)) - (p(-1, -1) + 2 * p(0, -1) + p(1, -1))
+    gy = (p(1, -1) + 2 * p(1, 0) + p(1, 1)) - (p(-1, -1) + 2 * p(-1, 0) + p(-1, 1))
+    return np.sum(gx * gx + gy * gy, axis=1)
+
+
+# For each energy function: its "at selected pixels" version, and the column
+# offsets around the removed seam (in the NEW, narrower image) whose energy
+# can change. Pixel j of row i is recomputed if seam[i] + lo <= j <= seam[i] + hi.
+#
+#   dual-gradient reads its left/right and up/down neighbours. Only the two
+#   pixels that become adjacent across the gap (new columns seam[i]-1 and
+#   seam[i]) change, because the seam moves at most 1 column per row: (-1, 0).
+#   Sobel reads a 3x3 window, so changes in rows i-1 and i+1 (whose seam pixel
+#   is within 1 column) reach 1 further on each side: (-3, 2) is safe.
+LOCAL_ENERGY = {
+    dual_gradient_energy: (dual_gradient_energy_at, (-1, 0)),
+    sobel_energy: (sobel_energy_at, (-3, 2)),
+}

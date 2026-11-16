@@ -20,9 +20,12 @@ Complexity for an m x n image reduced by k_w columns and k_h rows:
     each removal costs O(m·n) (energy + DP + copy), so the total is
     O((k_w + k_h) · m · n). Extra space is O(m·n) for the energy map and DP
     tables of the current image.
-    (Only pixels next to the removed seam actually change energy, so a
-    faster version could update the energy locally; we keep the simple
-    full recomputation, as the assignment describes.)
+    Improvement (resize(..., incremental=True)): only pixels next to the
+    removed seam actually change energy, so we can remove the seam from the
+    energy map as well and recompute just those pixels - O(m) instead of
+    O(m·n) for the energy part. The DP and the copy are still O(m·n), so the
+    total stays O((k_w + k_h)·m·n) but with a smaller constant. The default is
+    the simple full recomputation, exactly as the assignment describes.
 """
 
 from typing import Callable
@@ -30,7 +33,7 @@ from typing import Callable
 import numpy as np
 
 from seamcarve.dp import find_vertical_seam
-from seamcarve.energy import dual_gradient_energy
+from seamcarve.energy import LOCAL_ENERGY, dual_gradient_energy
 
 # Type of a seam finder: takes an (m, n) energy map, returns m column indices.
 # Any algorithm with this signature can be plugged into resize().
@@ -83,17 +86,23 @@ def resize(
     new_width: int,
     finder: SeamFinder = find_vertical_seam,
     energy_fn: EnergyFunction = dual_gradient_energy,
+    incremental: bool = False,
 ) -> np.ndarray:
     """Shrink an image to (new_height, new_width) by seam carving.
 
     Args:
-        img:        (m, n) or (m, n, c) image, e.g. uint8 RGB.
-        new_height: target number of rows,    1 <= new_height <= m.
-        new_width:  target number of columns, 1 <= new_width  <= n.
-        finder:     returns a minimum vertical seam for an energy map
-                    (default: the dynamic-programming version).
-        energy_fn:  computes the energy map of an image
-                    (default: dual-gradient energy).
+        img:         (m, n) or (m, n, c) image, e.g. uint8 RGB.
+        new_height:  target number of rows,    1 <= new_height <= m.
+        new_width:   target number of columns, 1 <= new_width  <= n.
+        finder:      returns a minimum vertical seam for an energy map
+                     (default: the dynamic-programming version).
+        energy_fn:   computes the energy map of an image
+                     (default: dual-gradient energy).
+        incremental: False (default) recomputes the whole energy map after
+                     every removal. True keeps the energy map, removes the
+                     seam from it too, and recomputes only the pixels next to
+                     the seam (see LOCAL_ENERGY in energy.py). Both give
+                     exactly the same result; True is faster.
 
     Returns:
         New array of shape (new_height, new_width[, c]) with the same dtype.
@@ -104,8 +113,13 @@ def resize(
             f"target size must be between 1x1 and the current size {height}x{width}, "
             f"got {new_height}x{new_width} (this implementation only shrinks images)"
         )
+    if incremental and energy_fn not in LOCAL_ENERGY:
+        raise ValueError(f"no local update rule for energy function {energy_fn.__name__}")
 
     out = img
+    # With incremental updates the energy map is carried along with the image;
+    # otherwise it is recomputed from scratch inside every step.
+    energy = energy_fn(img) if incremental else None
     next_is_vertical = True
     while out.shape[1] > new_width or out.shape[0] > new_height:
         need_vertical = out.shape[1] > new_width
@@ -113,23 +127,57 @@ def resize(
 
         # Alternate while both are needed; otherwise do whichever is left.
         if need_vertical and (next_is_vertical or not need_horizontal):
-            out = _remove_one_vertical(out, finder, energy_fn)
+            out, energy = _remove_one_vertical(out, energy, finder, energy_fn)
         else:
-            out = _remove_one_horizontal(out, finder, energy_fn)
+            out, energy = _remove_one_horizontal(out, energy, finder, energy_fn)
         next_is_vertical = not next_is_vertical
 
     return np.ascontiguousarray(out)
 
 
-def _remove_one_vertical(img, finder, energy_fn):
-    energy = energy_fn(img)       # 1. energy of the current image
-    seam = finder(energy)         # 2. minimum vertical seam
-    return remove_vertical_seam(img, seam)   # 3. delete it
+def _remove_one_vertical(img, energy, finder, energy_fn):
+    """One iteration: energy -> minimum seam -> remove. Returns (img, energy).
+
+    energy is None in the default (full recomputation) mode.
+    """
+    if energy is None:
+        seam = finder(energy_fn(img))            # 1. full energy, 2. seam
+        return remove_vertical_seam(img, seam), None   # 3. delete it
+
+    seam = finder(energy)                        # energy is already up to date
+    img = remove_vertical_seam(img, seam)
+    energy = remove_vertical_seam(energy, seam)  # drop the seam from the map too
+    update_energy_near_seam(img, energy, seam, energy_fn)
+    return img, energy
 
 
-def _remove_one_horizontal(img, finder, energy_fn):
-    # Work on the transpose so the same vertical finder can be reused:
+def _remove_one_horizontal(img, energy, finder, energy_fn):
+    # Work on the transpose so the same vertical code can be reused:
     # a horizontal seam of img is a vertical seam of img transposed.
-    transposed = np.swapaxes(img, 0, 1)
-    reduced = _remove_one_vertical(transposed, finder, energy_fn)
-    return np.swapaxes(reduced, 0, 1)
+    # (The energy of a transposed image is the transposed energy, so the
+    # carried energy map can be transposed the same way.)
+    img_t = np.swapaxes(img, 0, 1)
+    energy_t = None if energy is None else energy.T
+    img_t, energy_t = _remove_one_vertical(img_t, energy_t, finder, energy_fn)
+    return np.swapaxes(img_t, 0, 1), (None if energy_t is None else energy_t.T)
+
+
+def update_energy_near_seam(img, energy, seam, energy_fn) -> None:
+    """Recompute, in place, the energies that removing `seam` may have changed.
+
+    Args:
+        img:    the image AFTER the vertical seam was removed, shape (m, n-1[, c]).
+        energy: the old energy map with the same seam removed, shape (m, n-1).
+        seam:   the removed seam (column indices in the OLD image).
+
+    Only pixels in columns seam[i]+lo .. seam[i]+hi of each row are recomputed,
+    where (lo, hi) comes from LOCAL_ENERGY. Cost O(m) instead of O(m·n).
+    """
+    at_fn, (lo, hi) = LOCAL_ENERGY[energy_fn]
+    m, n = energy.shape
+    offsets = np.arange(lo, hi + 1)
+    rows = np.repeat(np.arange(m), offsets.size)
+    cols = (np.asarray(seam)[:, np.newaxis] + offsets).ravel()
+    inside = (cols >= 0) & (cols < n)
+    rows, cols = rows[inside], cols[inside]
+    energy[rows, cols] = at_fn(img, rows, cols)

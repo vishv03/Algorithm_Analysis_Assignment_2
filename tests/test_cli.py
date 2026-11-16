@@ -47,3 +47,12 @@ def test_cli_sobel_energy(tmp_path):
     write_image(src)
     assert main([str(src), str(dst), "--width", "12", "--energy", "sobel"]) == 0
     assert Image.open(dst).size == (12, 12)
+
+
+def test_cli_fast_gives_identical_output(tmp_path):
+    src = tmp_path / "in.png"
+    write_image(src)
+    slow, fast = tmp_path / "slow.png", tmp_path / "fast.png"
+    assert main([str(src), str(slow), "--width", "10", "--height", "9"]) == 0
+    assert main([str(src), str(fast), "--width", "10", "--height", "9", "--fast"]) == 0
+    np.testing.assert_array_equal(np.asarray(Image.open(fast)), np.asarray(Image.open(slow)))
