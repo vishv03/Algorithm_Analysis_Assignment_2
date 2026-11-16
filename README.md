@@ -85,3 +85,16 @@ output as the default (checked by `tests/test_improvements.py`):
 ```
 .venv\Scripts\python cli.py samples/broadway_tower.jpg out/broadway_w640.jpg --width 640
 ```
+
+## Benchmark
+
+```
+.venv\Scripts\python benchmark.py
+```
+
+Scales the sample photo to several sizes, then measures the energy map, one DP
+seam search (full table and low-memory), and the time per seam for the default and
+`--fast` modes, plus the DP's peak memory. Writes `benchmark.csv`, `benchmark.md`
+(a table for the report) and two charts, `time_per_seam.png` and `dp_memory.png`,
+to `out/benchmark/`. Use `--repeats`, `--seams` and `--scales` to change the runs.
+Requires `matplotlib` (in `requirements.txt`).
