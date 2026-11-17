@@ -49,6 +49,13 @@ def test_cli_sobel_energy(tmp_path):
     assert Image.open(dst).size == (12, 12)
 
 
+def test_cli_greedy_finder(tmp_path):
+    src, dst = tmp_path / "in.png", tmp_path / "out.png"
+    write_image(src)
+    assert main([str(src), str(dst), "--width", "11", "--height", "10", "--finder", "greedy"]) == 0
+    assert Image.open(dst).size == (11, 10)
+
+
 def test_cli_fast_gives_identical_output(tmp_path):
     src = tmp_path / "in.png"
     write_image(src)

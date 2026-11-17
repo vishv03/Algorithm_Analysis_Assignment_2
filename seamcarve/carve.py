@@ -34,11 +34,25 @@ import numpy as np
 
 from seamcarve.dp import find_vertical_seam
 from seamcarve.energy import LOCAL_ENERGY, dual_gradient_energy
+from seamcarve.greedy import (
+    find_vertical_seam_greedy,
+    find_vertical_seam_greedy_lookahead,
+    find_vertical_seam_greedy_multistart,
+)
 
 # Type of a seam finder: takes an (m, n) energy map, returns m column indices.
 # Any algorithm with this signature can be plugged into resize().
 SeamFinder = Callable[[np.ndarray], np.ndarray]
 EnergyFunction = Callable[[np.ndarray], np.ndarray]
+
+# Name -> seam finder, used by the command-line tools (--finder).
+SEAM_FINDERS = {
+    "dp": find_vertical_seam,                 # Question 1: optimal seam
+    "greedy": find_vertical_seam_greedy,      # Question 3: local row-by-row choice
+    # Question 3, alternative greedy designs:
+    "greedy-multistart": find_vertical_seam_greedy_multistart,   # greedy from every start
+    "greedy-lookahead": find_vertical_seam_greedy_lookahead,     # 3-row lookahead
+}
 
 
 def remove_vertical_seam(img: np.ndarray, seam: np.ndarray) -> np.ndarray:

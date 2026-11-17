@@ -98,3 +98,57 @@ seam search (full table and low-memory), and the time per seam for the default a
 (a table for the report) and two charts, `time_per_seam.png` and `dp_memory.png`,
 to `out/benchmark/`. Use `--repeats`, `--seams` and `--scales` to change the runs.
 Requires `matplotlib` (in `requirements.txt`).
+
+## Greedy algorithm (Question 3)
+
+`seamcarve/greedy.py` builds the seam one row at a time: it starts at the cheapest
+pixel in row 0, then in each next row takes the cheapest of the (up to) 3 pixels
+below the current one. It never looks ahead, so it is fast (O(m + n) per seam, no
+table) but not optimal. The DP seam is the minimum over all seams, so a greedy seam
+can never cost less, and the cheapest pixel now can lead into an expensive region
+(see the `TRAP` example in `tests/test_greedy.py`: greedy 19 vs DP 4).
+
+Use it from the command line with `--finder greedy` (works with `--width`,
+`--height`, `--energy` and `--fast`):
+
+```
+.venv\Scripts\python cli.py samples/broadway_tower.jpg out/broadway_greedy.jpg --width 672 --finder greedy
+```
+
+### Alternative greedy designs
+
+Two variants test whether greedy can be fixed cheaply (`--finder greedy-multistart`
+or `--finder greedy-lookahead`):
+
+- **Multi-start** (`find_vertical_seam_greedy_multistart`): runs greedy from every
+  top-row pixel (all at once with NumPy) and keeps the cheapest. Fixes a bad start,
+  but costs O(m·n) and is still not optimal (see `test_multistart_is_still_not_optimal`).
+- **Lookahead** (`find_vertical_seam_greedy_lookahead`, depth 3): scores each step by
+  the cheapest 3-row path ahead, from a truncated bottom-up DP table (`lookahead_costs`).
+  Costs O(depth·m·n); depth 1 is plain greedy and depth m is exactly DP.
+
+Compare all of them with DP (seams, visual quality, seam energy, running time):
+
+```
+.venv\Scripts\python greedy_compare.py
+```
+
+This writes `seams_first.png` (first seam of each: DP red, greedy blue),
+`seams_all.png` (first 40 seams of every method), `result.png` (original and every method),
+`seam_cost.png`, `timing.png` and `greedy_vs_dp.md` (tables for the report) to
+`out/greedy/`. Options: `--width`, `--seams-shown`, `--energy`, `--methods`, `--scales`, `--repeats`.
+
+Check the conclusions on every sample image and both energy functions:
+
+```
+.venv\Scripts\python greedy_experiments.py
+```
+
+Writes `experiments.csv`, `experiments.md` and one result panel per
+(image, energy) pair to `out/greedy/experiments/`.
+
+Result on the Broadway Tower photo (960x651 -> 672x651): greedy finds each seam
+about 20x faster, but the whole resize is only about 1.6x faster, because the energy
+map and the seam removal (both O(m·n)) still run for every seam. Greedy seams cost
+about 3x as much energy as DP seams on average (up to 20x), and it visibly
+squeezes the tower, while DP takes its seams from the sky and grass.
