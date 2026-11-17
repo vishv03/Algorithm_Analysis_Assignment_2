@@ -189,11 +189,12 @@ registered as `"graphcut"` in `SEAM_FINDERS`, so it plugs straight into
 `resize(finder=...)`:
 
 ```
-.venv\Scripts\python cli.py samples/broadway_tower.jpg out/broadway_graphcut.jpg --width 900 --finder graphcut
+.venv\Scripts\python cli.py samples/broadway_tower.jpg out/broadway_graphcut.jpg --width 950 --finder graphcut
 ```
 
-Graph cut is slow (see below), so keep the number of seams small on the full
-960 x 651 photo.
+Graph cut is slow (see below): on the full 960 x 651 photo each seam can take 10 s or more,
+so keep the number of seams small (10 here, a few minutes in total). `--fast` only changes the
+energy update for graph cut; the low-memory DP applies to `--finder dp` only.
 
 ### Forward energy
 

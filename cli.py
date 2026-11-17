@@ -39,8 +39,9 @@ def parse_args(argv=None) -> argparse.Namespace:
                         help="use the improvements: local energy update + low-memory DP "
                              "(same result, faster)")
     parser.add_argument("--finder", choices=sorted(SEAM_FINDERS), default="dp",
-                        help="seam finding algorithm: dp (optimal, Q1) or greedy "
-                             "(row-by-row local choice, Q3) (default: dp)")
+                        help="seam finding algorithm: dp (optimal, Q1), greedy "
+                             "(row-by-row local choice, Q3), or graphcut "
+                             "(min-cut / max-flow, optimal but slow) (default: dp)")
     return parser.parse_args(argv)
 
 
