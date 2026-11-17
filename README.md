@@ -2,7 +2,9 @@
 
 Content-aware image resizing (Avidan & Shamir, 2007), Assignment 2 Question 1.
 Removes low-energy vertical and horizontal seams, found with dynamic programming,
-until the image reaches the requested size.
+until the image reaches the requested size. Two alternatives to DP are also
+implemented and compared: a greedy seam finder (Question 3) and a graph cut
+(min-cut / max-flow) seam finder.
 
 ## Setup
 
@@ -14,6 +16,8 @@ python -m venv .venv
 .venv\Scripts\python -m pip install -r requirements.txt   # Windows (cmd or PowerShell)
 # .venv/bin/python -m pip install -r requirements.txt     # macOS / Linux
 ```
+
+The graph cut seam finder needs `scipy` for max-flow (in `requirements.txt`).
 
 ## Tests
 
@@ -152,3 +156,77 @@ about 20x faster, but the whole resize is only about 1.6x faster, because the en
 map and the seam removal (both O(m·n)) still run for every seam. Greedy seams cost
 about 3x as much energy as DP seams on average (up to 20x), and it visibly
 squeezes the tower, while DP takes its seams from the sky and grass.
+
+## Graph cut (min-cut / max-flow)
+
+`seamcarve/graphcut.py` reformulates seam finding as a minimum s–t cut. A vertical
+seam splits the image into a left part (source side S) and a right part (sink
+side T), so the cheapest cut is the cheapest seam. One node per pixel, plus a
+source s and a sink t:
+
+| Edge | Capacity | Purpose |
+|------|----------|---------|
+| s → (i, 0) | ∞ | the first column is always on the source side |
+| (i, j) → (i, j+1) | e[i][j] | cutting it removes pixel (i, j), the only edges that cost anything |
+| (i, n-1) → t | e[i][n-1] | lets the last column be removed too |
+| (i, j+1) → (i, j) | ∞ | S is a prefix of each row, so the cut crosses each row exactly once |
+| (i, j) → (i-1, j-1), (i+1, j-1) | ∞ | seam columns in neighbouring rows differ by at most 1 (connected seam) |
+
+Max-flow is run with scipy's Dinic (default) or Edmonds–Karp, or with our own
+Edmonds–Karp (`edmonds_karp()`, pure Python, used in the tests). A BFS from s in
+the residual graph gives S, and the seam pixel in each row is the rightmost pixel
+of that row in S. By the max-flow min-cut theorem the flow value equals the seam
+energy, which the code asserts. Horizontal seams use the transposed energy map,
+as with DP.
+
+scipy's max-flow needs int32 capacities. Dual-gradient and Sobel energies of a
+uint8 image are already integers and are used exactly when they fit; otherwise
+they are scaled and rounded. ∞ is `m * max(e) + 1`, more than any straight seam
+costs, so it is never cut.
+
+`find_vertical_seam_graphcut` has the same signature as the DP finder and is
+registered as `"graphcut"` in `SEAM_FINDERS`, so it plugs straight into
+`resize(finder=...)`:
+
+```
+.venv\Scripts\python cli.py samples/broadway_tower.jpg out/broadway_graphcut.jpg --width 900 --finder graphcut
+```
+
+Graph cut is slow (see below), so keep the number of seams small on the full
+960 x 651 photo.
+
+### Forward energy
+
+`forward_energy` in `seamcarve/energy.py` is the cost suggested for the graph cut,
+`|I(i, j+1) - I(i, j-1)|` summed over R, G, B. It measures the new edge created when
+pixel (i, j) is removed, instead of the energy removed. It is **not** in
+`ENERGY_FUNCTIONS`: it only looks left and right, so the energy of the transposed
+image is not the transpose of the energy, which the transpose trick for horizontal
+seams relies on. It is available as `--energy forward` in `graphcut_compare.py`, which
+always computes it on the image being carved (transposed for horizontal seams).
+
+### Comparison with DP
+
+```
+.venv\Scripts\python graphcut_compare.py
+```
+
+Shrinks the photo so its longer side is 300 px (`--max-side`, 0 = full size), removes
+40 vertical and 40 horizontal seams (`--seams`) with DP and with graph cut, and times
+one seam search at several sizes with DP, graph cut (Dinic) and graph cut
+(Edmonds–Karp). Writes `seams_vertical.png`, `seams_horizontal.png` (DP red, graph cut
+green), `result.png`, `timing.png` and `graphcut_vs_dp.md` (tables for the report) to
+`out/graphcut/`. Options: `--energy`, `--scales`, `--repeats`, `--no-charts`.
+
+Result on the Broadway Tower photo (300 x 203, dual-gradient, 40 seams each way):
+graph cut finds exactly the same seams as DP (40/40 in both directions, identical
+output), because both solve the same problem exactly. It is about 150–400x slower:
+DP takes about 2–4 ms per seam, graph cut 570–810 ms (Dinic), and Edmonds–Karp is
+about 10x slower again (3.3 s per seam at 225 x 152). DP is one O(m·n) pass; graph
+cut runs a general max-flow on a graph with about 5·m·n edges. The advantage of graph
+cut is generality, not speed: the same construction extends to seam surfaces in
+video and to constraints DP cannot express.
+
+Tests: `tests/test_graphcut.py` checks that the graph cut seam always has the same
+energy as the DP seam (random maps, all energy functions, all three solvers), that
+the first and last columns can be removed, the edge count, and `resize()` integration.
