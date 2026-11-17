@@ -115,6 +115,12 @@ def forward_energy(img: np.ndarray) -> np.ndarray:
     brief suggests. (Full forward energy, Rubinstein et al. 2008, also charges
     the new vertical neighbours; that needs costs on the diagonal graph edges
     and is not implemented here.) Borders use edge replication. O(m·n).
+
+    NOT in ENERGY_FUNCTIONS: it only looks left/right, so the energy of the
+    transposed image is not the transpose of the energy. The CLI tools and
+    resize(incremental=True) rely on that symmetry. graphcut_compare.py
+    adds it as an extra option and always computes it on the (transposed)
+    image being carved, which is the correct direction.
     """
     if img.ndim == 2:
         img = img[:, :, np.newaxis]
@@ -128,7 +134,6 @@ def forward_energy(img: np.ndarray) -> np.ndarray:
 ENERGY_FUNCTIONS = {
     "dual-gradient": dual_gradient_energy,
     "sobel": sobel_energy,
-    "forward": forward_energy,
 }
 
 

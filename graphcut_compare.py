@@ -31,7 +31,7 @@ from PIL import Image
 from benchmark import _line_chart, median_ms
 from greedy_compare import DP_COLOR, carve_tracked, draw_seams, panels
 from seamcarve.dp import find_vertical_seam
-from seamcarve.energy import ENERGY_FUNCTIONS
+from seamcarve.energy import ENERGY_FUNCTIONS, forward_energy
 from seamcarve.graphcut import find_vertical_seam_graphcut
 
 GC_COLOR = (20, 170, 60)        # green
@@ -42,6 +42,8 @@ FINDERS = {
 }
 NAMES = {"dp": "Dynamic programming", "graphcut": "Graph cut (Dinic)",
          "graphcut-ek": "Graph cut (Edmonds-Karp)"}
+# forward energy is direction-dependent, so it is not in ENERGY_FUNCTIONS (see energy.py).
+ENERGIES = {**ENERGY_FUNCTIONS, "forward": forward_energy}
 COLORS = {"dp": "#2a78d6", "graphcut": "#1d9e75", "graphcut-ek": "#eb6834"}
 
 
@@ -124,7 +126,7 @@ def main(argv=None) -> int:
     parser.add_argument("--max-side", type=int, default=300,
                         help="shrink so the longer side is at most this (0 = full size)")
     parser.add_argument("--seams", type=int, default=40, help="seams to remove per direction")
-    parser.add_argument("--energy", choices=sorted(ENERGY_FUNCTIONS), default="dual-gradient")
+    parser.add_argument("--energy", choices=sorted(ENERGIES), default="dual-gradient")
     parser.add_argument("--scales", type=float, nargs="+", default=[0.15, 0.3, 0.5, 0.75, 1.0])
     parser.add_argument("--repeats", type=int, default=3)
     parser.add_argument("--no-charts", action="store_true")
@@ -139,7 +141,7 @@ def main(argv=None) -> int:
     h, w = img.shape[:2]
     if not 1 <= args.seams < min(h, w):
         parser.error(f"--seams must be between 1 and {min(h, w) - 1}")
-    energy_fn = ENERGY_FUNCTIONS[args.energy]
+    energy_fn = ENERGIES[args.energy]
     args.out.mkdir(parents=True, exist_ok=True)
 
     results, carved = {}, {}

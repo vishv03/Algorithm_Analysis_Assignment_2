@@ -9,3 +9,4 @@ __pycache__/
 # Generated output images
 out/
 *_out.*
+.venv/
