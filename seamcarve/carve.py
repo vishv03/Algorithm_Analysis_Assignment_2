@@ -34,6 +34,7 @@ import numpy as np
 
 from seamcarve.dp import find_vertical_seam
 from seamcarve.energy import LOCAL_ENERGY, dual_gradient_energy
+from seamcarve.graphcut import find_vertical_seam_graphcut
 from seamcarve.greedy import (
     find_vertical_seam_greedy,
     find_vertical_seam_greedy_lookahead,
@@ -52,6 +53,7 @@ SEAM_FINDERS = {
     # Question 3, alternative greedy designs:
     "greedy-multistart": find_vertical_seam_greedy_multistart,   # greedy from every start
     "greedy-lookahead": find_vertical_seam_greedy_lookahead,     # 3-row lookahead
+    "graphcut": find_vertical_seam_graphcut,  # min s-t cut / max-flow: optimal, like DP
 }
 
 

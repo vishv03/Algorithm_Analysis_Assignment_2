@@ -102,10 +102,33 @@ def sobel_energy(img: np.ndarray) -> np.ndarray:
     return np.sum(gx * gx + gy * gy, axis=2)
 
 
+def forward_energy(img: np.ndarray) -> np.ndarray:
+    """Simple forward energy: the new edge created if pixel (i, j) is removed.
+
+    Removing (i, j) makes its left and right neighbours adjacent, so the cost is
+    how different they are:
+
+        e(i, j) = Σ over channels of |I(i, j+1) - I(i, j-1)|
+
+    It measures the energy INSERTED by the removal rather than the energy
+    removed. Used by the graph cut comparison (graphcut_compare.py) as the
+    brief suggests. (Full forward energy, Rubinstein et al. 2008, also charges
+    the new vertical neighbours; that needs costs on the diagonal graph edges
+    and is not implemented here.) Borders use edge replication. O(m·n).
+    """
+    if img.ndim == 2:
+        img = img[:, :, np.newaxis]
+    if img.ndim != 3:
+        raise ValueError(f"expected an (m, n) or (m, n, c) image, got shape {img.shape}")
+    p = np.pad(img.astype(np.float64), ((0, 0), (1, 1), (0, 0)), mode="edge")
+    return np.sum(np.abs(p[:, 2:] - p[:, :-2]), axis=2)
+
+
 # Name -> function, used by the command-line tools (--energy).
 ENERGY_FUNCTIONS = {
     "dual-gradient": dual_gradient_energy,
     "sobel": sobel_energy,
+    "forward": forward_energy,
 }
 
 
