@@ -1,0 +1,154 @@
+# Bonus (c): CI/CD for the seam carving project.
+#
+#   CI  (every push and pull request)
+#     lint   - ruff: syntax errors, undefined names, unused imports/variables
+#     test   - the full pytest suite on Linux (3 Python versions), Windows and macOS
+#   CD  (after the tests pass)
+#     demo    - runs the command-line tools on the sample photo and publishes the
+#               output images (resize, comparison, step-by-step GIF, ...) as a
+#               downloadable build artifact, with a summary on the run page
+#     release - on a version tag (v*), creates a GitHub Release with the demo
+#               outputs and a source archive attached
+#
+# To make a release:  git tag v1.0 && git push origin v1.0
+
+name: CI/CD
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    name: Lint (ruff)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install ruff
+      - run: ruff check --select E9,F63,F7,F82,F401,F841 --output-format=github .
+
+  test:
+    name: Tests (${{ matrix.os }}, Python ${{ matrix.python }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest]
+        python: ["3.10", "3.12", "3.14"]
+        include:
+          - os: windows-latest
+            python: "3.12"
+          - os: macos-latest
+            python: "3.12"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+          cache: pip
+          cache-dependency-path: requirements.txt
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Run tests
+        run: python -m pytest -q --junitxml=test-results.xml
+      - name: Upload test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-${{ matrix.os }}-py${{ matrix.python }}
+          path: test-results.xml
+          retention-days: 14
+
+  demo:
+    name: Build demo outputs
+    needs: [lint, test]
+    runs-on: ubuntu-latest
+    env:
+      MPLBACKEND: Agg
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements.txt
+      - run: python -m pip install -r requirements.txt
+      - name: Seam carving (DP), scaling/cropping comparison
+        run: |
+          python cli.py samples/broadway_tower.jpg out/demo/broadway_w640.jpg --width 640 --fast
+          python cli.py samples/scene.png out/demo/scene_300x220.png --width 300 --height 220 --fast
+          python compare.py samples/broadway_tower.jpg out/demo/broadway_compare.jpg --width 640
+      - name: Step-by-step visualisation (all seams)
+        run: python visualize.py samples/broadway_tower.jpg out/visualize --width 220 --height 160 --fast
+      - name: Greedy vs DP and graph cut vs DP
+        run: |
+          python greedy_compare.py --scales 0.3 0.5 --repeats 1
+          python graphcut_compare.py --max-side 120 --seams 10 --scales 0.3 0.5 --repeats 1
+      - name: Benchmark
+        run: python benchmark.py --scales 0.3 0.6 --seams 5 --repeats 1
+      - name: Job summary
+        run: |
+          {
+            echo "## Demo outputs"
+            echo "Download the **demo-outputs** artifact below for every image and chart."
+            echo
+            echo "### Step-by-step visualisation"
+            python - <<'PY'
+          import csv
+          rows = list(csv.DictReader(open("out/visualize/seams.csv")))
+          v = [float(r["seam_energy"]) for r in rows if r["direction"] == "vertical"]
+          h = [float(r["seam_energy"]) for r in rows if r["direction"] == "horizontal"]
+          print(f"- {len(rows)} seams removed ({len(v)} vertical, {len(h)} horizontal)")
+          print(f"- final size {rows[-1]['width_after']} x {rows[-1]['height_after']}")
+          if v: print(f"- mean vertical seam energy {sum(v) / len(v):,.0f}")
+          if h: print(f"- mean horizontal seam energy {sum(h) / len(h):,.0f}")
+          PY
+            echo
+            echo "### Benchmark"
+            cat out/benchmark/benchmark.md
+          } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: demo-outputs
+          path: out/
+          retention-days: 30
+
+  release:
+    name: GitHub Release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: demo
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: demo-outputs
+          path: out
+      - name: Package
+        run: |
+          (cd out && zip -qr ../demo-outputs.zip .)
+          git archive --format=zip --prefix="seam-carving-${GITHUB_REF_NAME}/" -o "seam-carving-${GITHUB_REF_NAME}-source.zip" HEAD
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            --title "Seam carving $GITHUB_REF_NAME" \
+            --generate-notes \
+            demo-outputs.zip "seam-carving-${GITHUB_REF_NAME}-source.zip" \
+            out/visualize/steps.gif out/visualize/summary.png out/demo/broadway_compare.jpg

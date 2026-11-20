@@ -1,5 +1,7 @@
 # Seam Carving with Dynamic Programming
 
+[![CI/CD](https://github.com/vishv03/Algorithm_Analysis_Assignment_2/actions/workflows/ci.yml/badge.svg)](https://github.com/vishv03/Algorithm_Analysis_Assignment_2/actions/workflows/ci.yml)
+
 Content-aware image resizing (Avidan & Shamir, 2007), Assignment 2 Question 1.
 Removes low-energy vertical and horizontal seams, found with dynamic programming,
 until the image reaches the requested size. Two alternatives to DP are also
@@ -231,3 +233,80 @@ video and to constraints DP cannot express.
 Tests: `tests/test_graphcut.py` checks that the graph cut seam always has the same
 energy as the DP seam (random maps, all energy functions, all three solvers), that
 the first and last columns can be removed, the edge count, and `resize()` integration.
+
+## Bonus
+
+### (a) Step-by-step visualisation, with every seam
+
+```
+.venv\Scripts\python visualize.py samples/broadway_tower.jpg out/visualize --width 220 --height 160
+```
+
+Writes to `out/visualize/`:
+
+| File | Content |
+|------|---------|
+| `steps.gif` | one frame per step (about 60 frames; `--every N` to choose), three panels: the current image with the seam about to be removed, the energy map of the current image with the same seam, and the original image with **all** seams removed so far |
+| `summary.png` | original, every removed seam drawn on the original, result |
+| `seams.csv` | step, direction, seam energy, size after each step (for charts in the report) |
+| `result.png` | the carved image |
+| `frames/step_0001.png` ... | every step as a PNG (`--frames`) |
+
+Vertical seams are drawn red → yellow (first → last), horizontal seams blue → cyan.
+The input is scaled so its longer side is 320 px (`--max-side`, 0 = full size), because
+a GIF of a large photo gets big quickly. `--energy`, `--finder` and `--fast` work as in `cli.py`.
+
+How the seams are drawn on the original: each seam is found in the *current*, already
+narrower image, so its columns are not original positions. `seamcarve/visualize.py`
+carries an index map (original position of every remaining pixel) through the carving
+and removes each seam from it as well; looking the seam up in the index map before
+removing it gives its original pixels. One extra O(m·n) copy per seam.
+
+`resize()` and the visualisation share the same loop: `carve_steps()` in
+`seamcarve/carve.py` yields one `SeamStep` (image, energy map, seam, result) per seam,
+and `resize()` just keeps the last result, so the visualised seams are exactly the ones
+`cli.py` removes.
+
+### (b) Interactive resizing
+
+```
+.venv\Scripts\python interactive.py samples/broadway_tower.jpg
+```
+
+Opens `http://localhost:8000` in the browser. Drag the width / height sliders or the
+handle at the corner of the image and the seam-carved result updates live (a few ms per
+update). The page also shows the removed seams on the original, a scaling or cropping
+baseline at the same size, an **Animate** button that replays the carving, the energy
+function choice, **Open image…** (or drag and drop a file), and **Download full size**,
+which carves the full-resolution image to the chosen size. The server uses only the
+Python standard library (`http.server`); the page is `webapp/index.html`.
+
+Why it is instant: carving each new size from scratch would cost O(k·m·n). Instead, as in
+Avidan & Shamir's *multi-size images*, the server carves vertical seams down to the
+minimum width once and records a **removal-order map**: the step at which every pixel is
+removed. Width w is then just "keep the pixels removed at step n − w or later", one
+O(m·n) mask that the browser applies itself. For the height, the server sends a
+horizontal removal-order map of the width-w image (computed once per width, cached), and
+the browser masks it the same way. The result for (w, h) is exactly
+`resize(resize(img, m, w), h, w)`: vertical seams first, then horizontal (the tests check
+this, and so does the download, which uses the same order at full size).
+
+The live preview works on a copy scaled to 480 px (`--preview-size`); sizes down to 25 %
+are offered (`--min-scale`). Precomputing takes about 1.5 s for the sample photo.
+
+### (c) CI/CD
+
+`.github/workflows/ci.yml` (GitHub Actions):
+
+| Job | When | What |
+|-----|------|------|
+| Lint | every push / PR | `ruff`: syntax errors, undefined names, unused imports and variables |
+| Tests | every push / PR | full `pytest` suite on Ubuntu (Python 3.10, 3.12, 3.14), Windows and macOS; JUnit report uploaded |
+| Demo | after lint and tests pass | runs `cli.py`, `compare.py`, `visualize.py`, `greedy_compare.py`, `graphcut_compare.py` and `benchmark.py` on the samples; uploads everything in `out/` as the `demo-outputs` artifact and writes a summary (seam statistics, benchmark table) on the run page |
+| Release | on a `v*` tag | creates a GitHub Release with the demo outputs, the step-by-step GIF and a source zip attached |
+
+Make a release with `git tag v1.0 && git push origin v1.0`.
+
+Tests for the bonus features: `tests/test_visualize.py` (removal-order maps reproduce
+`resize()` for every size, tracked seams are exactly the removed pixels, the
+visualisation outputs, and the interactive server's API end to end).

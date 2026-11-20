@@ -8,4 +8,8 @@ Assignment 2, Question 1:
 Alternatives to DP:
   greedy seam          -> seamcarve.greedy   (Question 3)
   graph cut / max-flow -> seamcarve.graphcut
+
+Bonus:
+  seam tracking, removal-order maps -> seamcarve.visualize
+  (used by visualize.py for the step-by-step view and interactive.py)
 """

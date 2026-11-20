@@ -1,0 +1,407 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Interactive Seam Carving</title>
+<style>
+  :root {
+    --bg: #f5f5f3; --panel: #ffffff; --ink: #1d1d1f; --muted: #6b6b70;
+    --line: #dcdcd8; --accent: #c2410c; --accent-ink: #ffffff; --stage: #e9e9e5;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #141416; --panel: #1e1e21; --ink: #ececee; --muted: #9a9aa2;
+      --line: #313136; --accent: #fb923c; --accent-ink: #1a1a1a; --stage: #0d0d0f;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #141416; --panel: #1e1e21; --ink: #ececee; --muted: #9a9aa2;
+    --line: #313136; --accent: #fb923c; --accent-ink: #1a1a1a; --stage: #0d0d0f;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font: 14px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  header, main { max-width: 1280px; margin: 0 auto; padding: 0 16px; }
+  header { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 16px; padding-top: 18px; }
+  h1 { font-size: 20px; margin: 0; letter-spacing: -0.01em; }
+  .meta { color: var(--muted); font-variant-numeric: tabular-nums; }
+  .controls {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px 20px;
+    background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+    padding: 14px 16px; margin: 14px 0;
+  }
+  .field label { display: flex; justify-content: space-between; color: var(--muted); font-size: 12px; margin-bottom: 4px; }
+  .field .row { display: flex; gap: 8px; align-items: center; }
+  input[type=range] { flex: 1; accent-color: var(--accent); min-width: 0; }
+  input[type=number], select {
+    width: 76px; padding: 4px 6px; border: 1px solid var(--line); border-radius: 6px;
+    background: var(--bg); color: var(--ink); font: inherit; font-variant-numeric: tabular-nums;
+  }
+  select { width: 100%; }
+  .buttons { display: flex; flex-wrap: wrap; gap: 8px; align-items: end; }
+  button, .filebtn {
+    padding: 6px 12px; border-radius: 6px; border: 1px solid var(--line); background: var(--bg);
+    color: var(--ink); font: inherit; cursor: pointer;
+  }
+  button:hover, .filebtn:hover { border-color: var(--muted); }
+  button.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+  button:disabled { opacity: 0.5; cursor: progress; }
+  .filebtn input { display: none; }
+  .stage { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); gap: 16px; }
+  .side { display: grid; gap: 16px; align-content: start; }
+  @media (max-width: 760px) { .stage { grid-template-columns: minmax(0, 1fr); } }
+  figure { margin: 0; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 10px; }
+  figcaption { display: flex; justify-content: space-between; gap: 8px; color: var(--muted); font-size: 12px; margin-bottom: 8px; }
+  figcaption b { color: var(--ink); font-weight: 600; }
+  .box { position: relative; width: 100%; background: var(--stage); border-radius: 4px;
+         background-image: repeating-conic-gradient(var(--line) 0 25%, transparent 0 50%);
+         background-size: 16px 16px; }
+  .frame { position: absolute; left: 0; top: 0; }
+  .frame canvas { display: block; width: 100%; height: 100%; }
+  .handle {
+    position: absolute; right: -9px; bottom: -9px; width: 18px; height: 18px; border-radius: 50%;
+    background: var(--accent); border: 2px solid var(--panel); cursor: nwse-resize; touch-action: none;
+    box-shadow: 0 1px 4px rgba(0,0,0,.35);
+  }
+  .busy { position: absolute; inset: 0; display: none; align-items: center; justify-content: center;
+          background: color-mix(in srgb, var(--panel) 55%, transparent); font-weight: 600; }
+  .busy.on { display: flex; }
+  .legend { display: flex; gap: 14px; font-size: 12px; color: var(--muted); margin-top: 8px; flex-wrap: wrap; }
+  .swatch { display: inline-block; width: 26px; height: 8px; border-radius: 2px; vertical-align: middle; margin-right: 4px; }
+  .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+  .seg button { border: 0; border-radius: 0; padding: 2px 8px; font-size: 12px; }
+  .seg button.on { background: var(--accent); color: var(--accent-ink); }
+  #status { color: var(--muted); font-size: 12px; margin: 10px 0 24px; min-height: 1.4em; font-variant-numeric: tabular-nums; }
+  .drop { outline: 3px dashed var(--accent); outline-offset: -8px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Interactive Seam Carving</h1>
+  <span class="meta" id="meta">loading…</span>
+</header>
+<main>
+  <section class="controls">
+    <div class="field">
+      <label for="w">Width <span id="wInfo"></span></label>
+      <div class="row"><input type="range" id="w"><input type="number" id="wNum"></div>
+    </div>
+    <div class="field">
+      <label for="h">Height <span id="hInfo"></span></label>
+      <div class="row"><input type="range" id="h"><input type="number" id="hNum"></div>
+    </div>
+    <div class="field">
+      <label for="energy">Energy function</label>
+      <select id="energy"></select>
+    </div>
+    <div class="buttons">
+      <label class="filebtn">Open image…<input type="file" id="file" accept="image/*"></label>
+      <button id="animate">Animate</button>
+      <button id="reset">Reset</button>
+      <button id="download" class="primary">Download full size</button>
+    </div>
+  </section>
+
+  <section class="stage">
+    <figure>
+      <figcaption><span><b>Seam carving</b> · drag the corner handle</span><span id="sizeLabel"></span></figcaption>
+      <div class="box" id="mainBox">
+        <div class="frame" id="mainFrame"><canvas id="result"></canvas><div class="handle" id="handle" title="Drag to resize"></div></div>
+        <div class="busy" id="busy">computing horizontal seams…</div>
+      </div>
+    </figure>
+    <div class="side">
+      <figure>
+        <figcaption><b>Removed seams on the original</b></figcaption>
+        <div class="box" id="seamBox"><div class="frame" style="width:100%;height:100%"><canvas id="seams"></canvas></div></div>
+        <div class="legend">
+          <span><i class="swatch" style="background:linear-gradient(90deg,#ff0000,#ffdc00)"></i>vertical (first → last)</span>
+          <span><i class="swatch" style="background:linear-gradient(90deg,#0046ff,#00e6ff)"></i>horizontal</span>
+        </div>
+      </figure>
+      <figure>
+        <figcaption><b>Baseline</b>
+          <span class="seg"><button id="bScale" class="on">Scale</button><button id="bCrop">Crop</button></span>
+        </figcaption>
+        <div class="box" id="baseBox"><div class="frame" id="baseFrame"><canvas id="baseline"></canvas></div></div>
+      </figure>
+    </div>
+  </section>
+  <div id="status"></div>
+</main>
+
+<script>
+"use strict";
+// ---------------------------------------------------------------------------
+// The server sends the preview image once, plus a removal-order map:
+//   vorder[i*n + j] = step at which pixel (i, j) is removed by vertical seams.
+// Width w = keep the pixels with vorder >= n - w (exactly w per row).
+// For the height, the server sends the width-w image and its horizontal map
+// horder; height h = keep the pixels with horder >= m - h (h per column).
+// ---------------------------------------------------------------------------
+const $ = (id) => document.getElementById(id);
+let S = null;                 // state from /api/state
+let rgb, vorder, n, m;        // preview pixels (RGB), vertical order map, size
+let baseMode = "scale";
+const hcache = new Map();     // width -> {rgb, horder}
+let hInFlight = null, hWanted = null;
+let target = { w: 0, h: 0 };
+const srcCanvas = document.createElement("canvas");   // the full preview, for the baseline
+
+function bytes(b64) {
+  const bin = atob(b64), out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
+const u16 = (b64) => new Uint16Array(bytes(b64).buffer);   // little-endian, as sent
+
+function status(text) { $("status").textContent = text; }
+
+async function getJSON(url, options) {
+  const res = await fetch(url, options);
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || res.statusText);
+  return data;
+}
+
+function applyState(state) {
+  S = state; n = S.preview[0]; m = S.preview[1];
+  rgb = bytes(S.pixels); vorder = u16(S.vorder);
+  hcache.clear(); hInFlight = null; hWanted = null;
+  $("meta").textContent = `${S.name} · ${S.full[0]}×${S.full[1]} (preview ${n}×${m}) · ` +
+                          `vertical seams precomputed in ${S.seconds.toFixed(2)} s`;
+  for (const [id, min, max] of [["w", S.min[0], n], ["h", S.min[1], m]]) {
+    for (const el of [$(id), $(id + "Num")]) { el.min = min; el.max = max; }
+  }
+  $("energy").innerHTML = S.energies.map((e) => `<option${e === S.energy ? " selected" : ""}>${e}</option>`).join("");
+  for (const box of ["mainBox", "seamBox", "baseBox"]) $(box).style.aspectRatio = `${n} / ${m}`;
+  srcCanvas.width = n; srcCanvas.height = m;
+  srcCanvas.getContext("2d").putImageData(toImageData(rgb, n, m), 0, 0);
+  setTarget(n, m);
+}
+
+function toImageData(pix, w, h) {
+  const img = new ImageData(w, h), d = img.data;
+  for (let p = 0, q = 0; p < w * h; p++, q += 3) {
+    d[4 * p] = pix[q]; d[4 * p + 1] = pix[q + 1]; d[4 * p + 2] = pix[q + 2]; d[4 * p + 3] = 255;
+  }
+  return img;
+}
+
+// Width w: one pass over the order map. colmap remembers each kept pixel's
+// original column, so horizontal seams can be drawn on the original later.
+function carveWidth(w) {
+  const removed = n - w, pix = new Uint8Array(m * w * 3), colmap = new Int32Array(m * w);
+  for (let i = 0; i < m; i++) {
+    let k = i * w;
+    for (let j = 0; j < n; j++) {
+      const p = i * n + j;
+      if (vorder[p] >= removed) {
+        colmap[k] = j; pix[3 * k] = rgb[3 * p]; pix[3 * k + 1] = rgb[3 * p + 1]; pix[3 * k + 2] = rgb[3 * p + 2];
+        k++;
+      }
+    }
+  }
+  return { pix, colmap };
+}
+
+// Height h of the width-w image: the same mask, column by column.
+function carveHeight(pixW, horder, w, h) {
+  const removed = m - h, out = new Uint8Array(h * w * 3);
+  for (let j = 0; j < w; j++) {
+    let k = 0;
+    for (let i = 0; i < m; i++) {
+      const p = i * w + j;
+      if (horder[p] >= removed) {
+        const q = k * w + j;
+        out[3 * q] = pixW[3 * p]; out[3 * q + 1] = pixW[3 * p + 1]; out[3 * q + 2] = pixW[3 * p + 2];
+        k++;
+      }
+    }
+  }
+  return out;
+}
+
+const lerp = (a, b, t) => Math.round(a + (b - a) * t);
+
+function drawSeams(w, h, colmap, hdata) {
+  const img = toImageData(rgb, n, m), d = img.data;
+  const vRemoved = n - w;
+  for (let p = 0; p < n * m; p++) {
+    if (vorder[p] < vRemoved) {
+      const t = vRemoved > 1 ? vorder[p] / (vRemoved - 1) : 0;
+      d[4 * p] = 255; d[4 * p + 1] = lerp(0, 220, t); d[4 * p + 2] = 0;
+    }
+  }
+  if (hdata && h < m) {
+    const hRemoved = m - h;
+    for (let p = 0; p < m * w; p++) {
+      if (hdata.horder[p] < hRemoved) {
+        const t = hRemoved > 1 ? hdata.horder[p] / (hRemoved - 1) : 0;
+        const i = Math.floor(p / w), q = i * n + colmap[p];
+        d[4 * q] = 0; d[4 * q + 1] = lerp(70, 230, t); d[4 * q + 2] = 255;
+      }
+    }
+  }
+  const c = $("seams"); c.width = n; c.height = m;
+  c.getContext("2d").putImageData(img, 0, 0);
+}
+
+function drawBaseline(w, h) {
+  const c = $("baseline"); c.width = w; c.height = h;
+  const ctx = c.getContext("2d");
+  ctx.imageSmoothingQuality = "high";
+  if (baseMode === "scale") ctx.drawImage(srcCanvas, 0, 0, n, m, 0, 0, w, h);
+  else ctx.drawImage(srcCanvas, Math.floor((n - w) / 2), Math.floor((m - h) / 2), w, h, 0, 0, w, h);
+  const f = $("baseFrame");
+  f.style.width = `${(100 * w) / n}%`; f.style.height = `${(100 * h) / m}%`;
+}
+
+function render() {
+  if (!S) return;
+  const t0 = performance.now();
+  const { w, h } = target;
+  const { pix, colmap } = carveWidth(w);
+  let out = pix, outH = m, hdata = null;
+  if (h < m) {
+    hdata = hcache.get(w);
+    if (hdata) out = carveHeight(pix, hdata.horder, w, h);
+    else { out = pix.subarray(0, h * w * 3); requestHorizontal(w); }   // top rows until ready
+    outH = h;
+  }
+  $("busy").classList.toggle("on", h < m && !hdata);
+  const c = $("result"); c.width = w; c.height = outH;
+  c.getContext("2d").putImageData(toImageData(out, w, outH), 0, 0);
+  const f = $("mainFrame");
+  f.style.width = `${(100 * w) / n}%`; f.style.height = `${(100 * h) / m}%`;
+  drawSeams(w, h, colmap, hdata);
+  drawBaseline(w, h);
+  const fw = Math.round((w * S.full[0]) / n), fh = Math.round((h * S.full[1]) / m);
+  $("sizeLabel").textContent = `${w}×${h} preview · ${fw}×${fh} full size`;
+  $("wInfo").textContent = `${n - w} seams removed`;
+  $("hInfo").textContent = `${m - h} seams removed`;
+  status(`Rendered in ${(performance.now() - t0).toFixed(1)} ms (mask on precomputed seams, no seam search)` +
+         (h < m && !hdata ? " · waiting for horizontal seams of this width…" : ""));
+}
+
+// At most one horizontal request at a time; if the width changed meanwhile,
+// fetch the latest one when the current request finishes.
+async function requestHorizontal(w) {
+  hWanted = w;
+  if (hInFlight !== null) return;
+  while (hWanted !== null && !hcache.has(hWanted)) {
+    const want = hWanted; hInFlight = want;
+    try {
+      const r = await getJSON(`/api/horizontal?width=${want}`);
+      hcache.set(r.width, { horder: u16(r.horder) });
+      status(`Horizontal seams for width ${r.width} computed in ${r.seconds.toFixed(2)} s`);
+    } catch (err) { status(`Error: ${err.message}`); break; }
+    finally { hInFlight = null; }
+    if (target.w === want) { render(); break; }
+  }
+}
+
+function setTarget(w, h) {
+  target.w = Math.max(S.min[0], Math.min(n, Math.round(w)));
+  target.h = Math.max(S.min[1], Math.min(m, Math.round(h)));
+  $("w").value = $("wNum").value = target.w;
+  $("h").value = $("hNum").value = target.h;
+  render();
+}
+
+for (const id of ["w", "h"]) {
+  for (const el of [$(id), $(id + "Num")]) {
+    el.addEventListener("input", () => {
+      const v = Number(el.value);
+      if (!Number.isFinite(v) || el.value === "") return;
+      id === "w" ? setTarget(v, target.h) : setTarget(target.w, v);
+    });
+  }
+}
+
+// Corner handle: drag to set width and height together.
+$("handle").addEventListener("pointerdown", (e) => {
+  e.preventDefault();
+  const handle = e.currentTarget; handle.setPointerCapture(e.pointerId);
+  const move = (ev) => {
+    const r = $("mainBox").getBoundingClientRect();
+    setTarget(((ev.clientX - r.left) / r.width) * n, ((ev.clientY - r.top) / r.height) * m);
+  };
+  const up = () => { handle.removeEventListener("pointermove", move); handle.removeEventListener("pointerup", up); };
+  handle.addEventListener("pointermove", move);
+  handle.addEventListener("pointerup", up);
+});
+
+$("bScale").onclick = () => { baseMode = "scale"; $("bScale").classList.add("on"); $("bCrop").classList.remove("on"); render(); };
+$("bCrop").onclick = () => { baseMode = "crop"; $("bCrop").classList.add("on"); $("bScale").classList.remove("on"); render(); };
+$("reset").onclick = () => setTarget(n, m);
+
+// Animate from the full size to the current target: width first, then height
+// (the same order as the full-size download).
+$("animate").onclick = async () => {
+  const goal = { ...target }, btn = $("animate");
+  if (goal.w === n && goal.h === m) { status("Pick a smaller size first, then press Animate."); return; }
+  btn.disabled = true;
+  if (goal.h < m && !hcache.has(goal.w)) {
+    status("Preparing horizontal seams…");
+    await getJSON(`/api/horizontal?width=${goal.w}`).then((r) => hcache.set(r.width, { horder: u16(r.horder) }));
+  }
+  const frames = (n - goal.w) + (m - goal.h), duration = Math.min(4000, 30 * frames);
+  const start = performance.now();
+  await new Promise((done) => {
+    const tick = (now) => {
+      const k = Math.round(Math.min(1, (now - start) / duration) * frames);
+      const dw = Math.min(k, n - goal.w);
+      setTarget(n - dw, m - (k - dw));
+      k < frames ? requestAnimationFrame(tick) : done();
+    };
+    requestAnimationFrame(tick);
+  });
+  btn.disabled = false;
+};
+
+$("energy").onchange = async (e) => {
+  status(`Recomputing seams with ${e.target.value} energy…`);
+  try { applyState(await getJSON(`/api/state?energy=${encodeURIComponent(e.target.value)}`)); }
+  catch (err) { status(`Error: ${err.message}`); }
+};
+
+async function upload(file) {
+  if (!file) return;
+  status(`Uploading ${file.name} and precomputing seams…`);
+  try {
+    applyState(await getJSON("/api/upload", { method: "POST", body: file,
+      headers: { "X-Filename": encodeURIComponent(file.name).replace(/%/g, "_") } }));
+  } catch (err) { status(`Error: ${err.message}`); }
+}
+$("file").onchange = (e) => upload(e.target.files[0]);
+document.addEventListener("dragover", (e) => { e.preventDefault(); document.body.classList.add("drop"); });
+document.addEventListener("dragleave", () => document.body.classList.remove("drop"));
+document.addEventListener("drop", (e) => {
+  e.preventDefault(); document.body.classList.remove("drop");
+  upload(e.dataTransfer.files[0]);
+});
+
+$("download").onclick = async () => {
+  const btn = $("download"); btn.disabled = true;
+  const t0 = performance.now();
+  status("Seam carving the full-size image (this can take a while for big images)…");
+  try {
+    const res = await fetch(`/api/export?width=${target.w}&height=${target.h}`);
+    if (!res.ok) throw new Error((await res.json()).error);
+    const blob = await res.blob();
+    const name = /filename="([^"]+)"/.exec(res.headers.get("Content-Disposition") || "")?.[1] || "seam_carved.png";
+    const a = Object.assign(document.createElement("a"), { href: URL.createObjectURL(blob), download: name });
+    a.click(); URL.revokeObjectURL(a.href);
+    status(`Saved ${name} (${res.headers.get("X-Size")}) in ${((performance.now() - t0) / 1000).toFixed(1)} s`);
+  } catch (err) { status(`Error: ${err.message}`); }
+  btn.disabled = false;
+};
+
+getJSON("/api/state").then(applyState).catch((err) => status(`Error: ${err.message}`));
+</script>
+</body>
+</html>

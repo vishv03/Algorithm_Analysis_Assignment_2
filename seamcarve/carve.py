@@ -28,7 +28,8 @@ Complexity for an m x n image reduced by k_w columns and k_h rows:
     the simple full recomputation, exactly as the assignment describes.
 """
 
-from typing import Callable
+from dataclasses import dataclass
+from typing import Callable, Iterator
 
 import numpy as np
 
@@ -96,6 +97,28 @@ def remove_horizontal_seam(img: np.ndarray, seam: np.ndarray) -> np.ndarray:
     return np.swapaxes(remove_vertical_seam(transposed, seam), 0, 1)
 
 
+@dataclass
+class SeamStep:
+    """One iteration of the carving loop, as yielded by carve_steps().
+
+    Used by the step-by-step visualisation (visualize.py) and the interactive
+    resizer (interactive.py); resize() simply keeps the last `result`.
+    """
+    number: int            # 1-based step number
+    direction: str         # "vertical" or "horizontal"
+    seam: np.ndarray       # vertical: column of each row; horizontal: row of each column
+    image: np.ndarray      # the image BEFORE this seam was removed
+    energy: np.ndarray     # energy map of `image` (same orientation as `image`)
+    result: np.ndarray     # the image AFTER this seam was removed
+
+    @property
+    def cost(self) -> float:
+        """Total energy of the seam (the quantity the seam finder minimises)."""
+        if self.direction == "vertical":
+            return float(self.energy[np.arange(self.energy.shape[0]), self.seam].sum())
+        return float(self.energy[self.seam, np.arange(self.energy.shape[1])].sum())
+
+
 def resize(
     img: np.ndarray,
     new_height: int,
@@ -123,6 +146,26 @@ def resize(
     Returns:
         New array of shape (new_height, new_width[, c]) with the same dtype.
     """
+    out = img
+    for step in carve_steps(img, new_height, new_width, finder, energy_fn, incremental):
+        out = step.result
+    return np.ascontiguousarray(out)
+
+
+def carve_steps(
+    img: np.ndarray,
+    new_height: int,
+    new_width: int,
+    finder: SeamFinder = find_vertical_seam,
+    energy_fn: EnergyFunction = dual_gradient_energy,
+    incremental: bool = False,
+) -> Iterator[SeamStep]:
+    """The carving loop of resize(), one SeamStep per removed seam.
+
+    Same arguments and the same seams as resize(); it just reports every
+    iteration (image, energy map, seam, result) instead of only the end result.
+    The steps are produced lazily, so nothing is stored unless the caller keeps it.
+    """
     height, width = img.shape[:2]
     if not (1 <= new_height <= height and 1 <= new_width <= width):
         raise ValueError(
@@ -137,34 +180,40 @@ def resize(
     # otherwise it is recomputed from scratch inside every step.
     energy = energy_fn(img) if incremental else None
     next_is_vertical = True
+    number = 0
     while out.shape[1] > new_width or out.shape[0] > new_height:
         need_vertical = out.shape[1] > new_width
         need_horizontal = out.shape[0] > new_height
+        before = out
+        number += 1
 
         # Alternate while both are needed; otherwise do whichever is left.
         if need_vertical and (next_is_vertical or not need_horizontal):
-            out, energy = _remove_one_vertical(out, energy, finder, energy_fn)
+            out, energy, seam, energy_used = _remove_one_vertical(out, energy, finder, energy_fn)
+            direction = "vertical"
         else:
-            out, energy = _remove_one_horizontal(out, energy, finder, energy_fn)
+            out, energy, seam, energy_used = _remove_one_horizontal(out, energy, finder, energy_fn)
+            direction = "horizontal"
         next_is_vertical = not next_is_vertical
-
-    return np.ascontiguousarray(out)
+        yield SeamStep(number, direction, seam, before, energy_used, out)
 
 
 def _remove_one_vertical(img, energy, finder, energy_fn):
-    """One iteration: energy -> minimum seam -> remove. Returns (img, energy).
+    """One iteration: energy -> minimum seam -> remove.
 
+    Returns (new img, new energy, seam, energy map the seam was found on).
     energy is None in the default (full recomputation) mode.
     """
     if energy is None:
-        seam = finder(energy_fn(img))            # 1. full energy, 2. seam
-        return remove_vertical_seam(img, seam), None   # 3. delete it
+        full = energy_fn(img)                    # 1. full energy
+        seam = finder(full)                      # 2. minimum seam
+        return remove_vertical_seam(img, seam), None, seam, full   # 3. delete it
 
     seam = finder(energy)                        # energy is already up to date
     img = remove_vertical_seam(img, seam)
-    energy = remove_vertical_seam(energy, seam)  # drop the seam from the map too
-    update_energy_near_seam(img, energy, seam, energy_fn)
-    return img, energy
+    new_energy = remove_vertical_seam(energy, seam)   # drop the seam from the map too
+    update_energy_near_seam(img, new_energy, seam, energy_fn)
+    return img, new_energy, seam, energy
 
 
 def _remove_one_horizontal(img, energy, finder, energy_fn):
@@ -174,8 +223,9 @@ def _remove_one_horizontal(img, energy, finder, energy_fn):
     # carried energy map can be transposed the same way.)
     img_t = np.swapaxes(img, 0, 1)
     energy_t = None if energy is None else energy.T
-    img_t, energy_t = _remove_one_vertical(img_t, energy_t, finder, energy_fn)
-    return np.swapaxes(img_t, 0, 1), (None if energy_t is None else energy_t.T)
+    img_t, energy_t, seam, used_t = _remove_one_vertical(img_t, energy_t, finder, energy_fn)
+    return (np.swapaxes(img_t, 0, 1), (None if energy_t is None else energy_t.T),
+            seam, used_t.T)
 
 
 def update_energy_near_seam(img, energy, seam, energy_fn) -> None:
